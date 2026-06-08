@@ -56,7 +56,9 @@ def main():
     # Start camera in preview mode so AEC/AWB stay converged between shots
     picam2 = Picamera2()
     preview_config = picam2.create_preview_configuration(
-        main={"size": CAMERA_RES, "format": "RGB888"}
+        main={"size": CAMERA_RES, "format": "RGB888"},
+        raw=None,
+        buffer_count=4
     )
     picam2.configure(preview_config)
     picam2.start()
