@@ -1,5 +1,4 @@
 picamera2
 python-escpos
-pygame
 gpiozero
 Pillow
