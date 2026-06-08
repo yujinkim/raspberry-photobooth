@@ -26,24 +26,133 @@ DEBOUNCE = 1.0
 
 
 def print_photo(image_path):
+    from PIL import Image, ImageDraw, ImageFont
+    import urllib.request
+
+    PRINTER_WIDTH = 384
+    PADDING = 16
+
+    # Download Space Mono font if not already present
+    font_path = Path.home() / "photobooth" / "SpaceMono-Regular.ttf"
+    font_bold_path = Path.home() / "photobooth" / "SpaceMono-Bold.ttf"
+    if not font_path.exists():
+        urllib.request.urlretrieve(
+            "https://github.com/google/fonts/raw/main/ofl/spacemono/SpaceMono-Regular.ttf",
+            str(font_path)
+        )
+    if not font_bold_path.exists():
+        urllib.request.urlretrieve(
+            "https://github.com/google/fonts/raw/main/ofl/spacemono/SpaceMono-Bold.ttf",
+            str(font_bold_path)
+        )
+
+    font_title = ImageFont.truetype(str(font_bold_path), 20)
+    font_date = ImageFont.truetype(str(font_path), 16)
+    font_time = ImageFont.truetype(str(font_path), 13)
+    font_ascii = ImageFont.truetype(str(font_path), 7)
+
+    ascii_art = (
+        "                ⣴⣶⡀   \n"
+        "  ⢠⣤⡀        ⣠⣤⣾⠏⠘⠿⣦⣤\n"
+        "  ⣾⠉⠻⢶⠶⠛⢻⡇   ⠘⢻⡦   ⢰⡾⠃\n"
+        "⢀⣤⠿    ⢠⡟⠁     ⸷⠿⠿⣾⣷ \n"
+        "⢿⣥⣀    ⢻⡆               \n"
+        " ⠈⠉⣿⣀⣾⠟⠛⠋⠁              \n"
+        "   ⠘⠛⠁      ⢀⣾⢻⣆⡀       \n"
+        "          ⢀⣤⣾⠃  ⠙⠛⣿⠇    \n"
+        "          ⠈⠻⣶⡄   ⢸⣏      \n"
+        "           ⢾⡷⠟⠛⠻⠿        "
+    )
+
+    # Measure ascii art height
+    dummy = Image.new("L", (PRINTER_WIDTH, 1))
+    draw_dummy = ImageDraw.Draw(dummy)
+    ascii_bbox = draw_dummy.multiline_textbbox((0, 0), ascii_art, font=font_ascii, spacing=1)
+    ascii_h = ascii_bbox[3] - ascii_bbox[1]
+
+    title_bbox = draw_dummy.textbbox((0, 0), "yujin's nest", font=font_title)
+    title_h = title_bbox[3] - title_bbox[1]
+
+    photo_size = PRINTER_WIDTH - PADDING * 2
+    divider_h = 12
+    date_h = 20
+    time_h = 18
+
+    total_h = (
+        PADDING +
+        ascii_h + 8 +
+        title_h + 12 +
+        divider_h +
+        photo_size + 
+        divider_h +
+        date_h + 4 +
+        time_h +
+        PADDING
+    )
+
+    canvas = Image.new("L", (PRINTER_WIDTH, total_h), color=255)
+    draw = ImageDraw.Draw(canvas)
+
+    y = PADDING
+
+    # ASCII art centered
+    draw.multiline_text(
+        (PRINTER_WIDTH // 2, y),
+        ascii_art,
+        font=font_ascii,
+        fill=0,
+        anchor="ma",
+        align="center",
+        spacing=1
+    )
+    y += ascii_h + 8
+
+    # Title
+    draw.text((PRINTER_WIDTH // 2, y), "yujin's nest", font=font_title, fill=0, anchor="ma")
+    y += title_h + 12
+
+    # Divider
+    for x in range(0, PRINTER_WIDTH, 8):
+        draw.line([(x, y + 5), (x + 4, y + 5)], fill=180, width=1)
+    y += divider_h
+
+    # Photo
+    img = Image.open(image_path)
+    size = min(img.width, img.height)
+    left = (img.width - size) // 2
+    top = (img.height - size) // 2
+    img = img.crop((left, top, left + size, top + size))
+    img = img.resize((photo_size, photo_size), Image.LANCZOS)
+    img = img.convert("L")
+    canvas.paste(img, (PADDING, y))
+    y += photo_size + 4
+
+    # Divider
+    for x in range(0, PRINTER_WIDTH, 8):
+        draw.line([(x, y + 5), (x + 4, y + 5)], fill=180, width=1)
+    y += divider_h
+
+    # Date
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%B %-d, %Y")
+    time_str = now.strftime("%-I:%M %p")
+
+    draw.text((PRINTER_WIDTH // 2, y), date_str, font=font_date, fill=0, anchor="ma")
+    y += date_h + 4
+
+    draw.text((PRINTER_WIDTH // 2, y), time_str, font=font_time, fill=80, anchor="ma")
+
+    # Send to printer
     p = EscposFile(PRINTER_DEVICE)
     try:
-        p._raw(b"\x1b\x40")              # ESC @ - initialize
+        p._raw(b"\x1b\x40")
         time.sleep(0.1)
-        p._raw(b"\x12\x23\x0A")          # DC2 # 10 - density ~100%
-        p._raw(b"\x1b\x37\x07\x50\x02")  # ESC 7 - default heat params
+        p._raw(b"\x12\x23\x0A")
+        p._raw(b"\x1b\x37\x07\x50\x02")
         time.sleep(0.1)
-
-        img = Image.open(image_path)
-        size = min(img.width, img.height)
-        left = (img.width - size) // 2
-        top = (img.height - size) // 2
-        img = img.crop((left, top, left + size, top + size))
-        img = img.resize((PRINTER_WIDTH_PX, PRINTER_WIDTH_PX), Image.LANCZOS)
-        img = img.rotate(180)            # Flip 180 so it prints right-side-up
-        img = img.convert("L")
-
-        p.image(img, impl="bitImageRaster")
+        canvas = canvas.rotate(180)
+        p.image(canvas, impl="bitImageRaster")
         p.text("\n\n\n\n")
         time.sleep(2)
     finally:
