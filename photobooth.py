@@ -5,6 +5,7 @@ No display or touchscreen required.
 import time
 import math
 import urllib.request
+import anthropic
 from pathlib import Path
 from datetime import datetime
 
@@ -26,6 +27,27 @@ DEBOUNCE = 1.0
 PHOTOS_DIR = Path.home() / "photobooth" / "captures"
 FONTS_DIR = Path.home() / "photobooth"
 
+# --- Fortune ---
+def get_fortune():
+    today = datetime.now().strftime("%B %-d, %Y")
+    client = anthropic.Anthropic()
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=100,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Today is {today}. Based on the real astrological transits for this date, "
+                    "write a 1-2 line fortune in the style of Co-Star. "
+                    "Be specific to today's actual planetary positions. "
+                    "Mystical, poetic, slightly unsettling. No hashtags, no emojis. "
+                    "Return only the fortune text, nothing else."
+                )
+            }
+        ]
+    )
+    return message.content[0].text.strip()
 
 # --- Fonts ---
 def get_fonts():
@@ -123,6 +145,9 @@ def make_star_header():
 
 # --- Receipt compositor ---
 def build_receipt(image_path):
+    font_fortune = ImageFont.truetype(str(font_path), 11)
+    fortune = get_fortune()
+
     font_title, font_date, font_time = get_fonts()
 
     star_img = make_star_header()
@@ -135,8 +160,8 @@ def build_receipt(image_path):
     time_h = 18
 
     total_h = (star_h + gap_after_stars + title_h + 10 +
-               divider_h + photo_size + divider_h +
-               date_h + 4 + time_h + PADDING)
+           divider_h + photo_size + divider_h +
+           date_h + 4 + time_h + 20 + 40 + PADDING)
 
     canvas = Image.new("L", (PRINTER_WIDTH, total_h), color=255)
     draw = ImageDraw.Draw(canvas)
@@ -180,6 +205,28 @@ def build_receipt(image_path):
     y += date_h + 4
     draw.text((PRINTER_WIDTH // 2, y), now.strftime("%-I:%M %p"),
               font=font_time, fill=80, anchor="ma")
+
+    # Fortune
+    y += time_h + 20
+
+    # Word wrap fortune to fit receipt width
+    words = fortune.split()
+    lines = []
+    current = ""
+    for word in words:
+        test = (current + " " + word).strip()
+        bbox = draw.textbbox((0, 0), test, font=font_fortune)
+        if bbox[2] > PRINTER_WIDTH - PADDING * 2:
+            lines.append(current)
+            current = word
+        else:
+            current = test
+    if current:
+        lines.append(current)
+
+    for line in lines:
+        draw.text((PRINTER_WIDTH // 2, y), line, font=font_fortune, fill=60, anchor="ma")
+        y += 16
 
     return canvas
 
