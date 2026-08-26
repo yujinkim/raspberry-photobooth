@@ -145,10 +145,10 @@ def make_star_header():
 
 # --- Receipt compositor ---
 def build_receipt(image_path):
-    font_fortune = ImageFont.truetype(str(font_path), 11)
     fortune = get_fortune()
 
     font_title, font_date, font_time = get_fonts()
+    font_fortune = ImageFont.truetype(str(FONTS_DIR / "SpaceMono-Regular.ttf"), 11)
 
     star_img = make_star_header()
     star_h = star_img.height
