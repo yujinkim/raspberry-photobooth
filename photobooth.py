@@ -293,6 +293,9 @@ def main():
 
     try:
         if args.preview:
+            print("Warming up camera...")
+            time.sleep(2)
+
             print("Capturing...")
             photo_path = capture_photo(picam2, preview_config)
             print(f"Saved: {photo_path}")
