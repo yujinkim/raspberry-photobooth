@@ -4,6 +4,7 @@ No display or touchscreen required.
 """
 import time
 import math
+import argparse
 import urllib.request
 import anthropic
 from pathlib import Path
@@ -38,10 +39,9 @@ def get_fortune():
             {
                 "role": "user",
                 "content": (
-                    f"Today is {today}. Based on the real astrological transits for this date, "
-                    "write a 1-2 line fortune in the style of Co-Star. "
-                    "Be specific to today's actual planetary positions. "
-                    "Mystical, poetic, slightly unsettling. No hashtags, no emojis. "
+                    f"Today is {today}. Write a Co-Star \"day in a glance\" style fortune. "
+                    "One short punchy sentence, maybe two. Playful, witty, a little dramatic. "
+                    "No hashtags, no emojis, no explaining the astrology behind it. "
                     "Return only the fortune text, nothing else."
                 )
             }
@@ -158,10 +158,28 @@ def build_receipt(image_path):
     title_h = 28
     date_h = 22
     time_h = 18
+    fortune_line_h = 16
+
+    # Word wrap fortune to fit receipt width (measured before sizing the canvas)
+    measurer = ImageDraw.Draw(Image.new("L", (1, 1)))
+    words = fortune.split()
+    fortune_lines = []
+    current = ""
+    for word in words:
+        test = (current + " " + word).strip()
+        bbox = measurer.textbbox((0, 0), test, font=font_fortune)
+        if bbox[2] > PRINTER_WIDTH - PADDING * 2:
+            fortune_lines.append(current)
+            current = word
+        else:
+            current = test
+    if current:
+        fortune_lines.append(current)
+    fortune_h = len(fortune_lines) * fortune_line_h
 
     total_h = (star_h + gap_after_stars + title_h + 10 +
            divider_h + photo_size + divider_h +
-           date_h + 4 + time_h + 20 + 40 + PADDING)
+           date_h + 4 + time_h + 20 + fortune_h + PADDING)
 
     canvas = Image.new("L", (PRINTER_WIDTH, total_h), color=255)
     draw = ImageDraw.Draw(canvas)
@@ -209,24 +227,9 @@ def build_receipt(image_path):
     # Fortune
     y += time_h + 20
 
-    # Word wrap fortune to fit receipt width
-    words = fortune.split()
-    lines = []
-    current = ""
-    for word in words:
-        test = (current + " " + word).strip()
-        bbox = draw.textbbox((0, 0), test, font=font_fortune)
-        if bbox[2] > PRINTER_WIDTH - PADDING * 2:
-            lines.append(current)
-            current = word
-        else:
-            current = test
-    if current:
-        lines.append(current)
-
-    for line in lines:
+    for line in fortune_lines:
         draw.text((PRINTER_WIDTH // 2, y), line, font=font_fortune, fill=60, anchor="ma")
-        y += 16
+        y += fortune_line_h
 
     return canvas
 
@@ -250,8 +253,33 @@ def print_photo(image_path):
         p.close()
 
 
+def capture_photo(picam2, preview_config):
+    """Switch to still mode, capture a fresh frame from the camera, and return
+    to preview mode. Always writes a new timestamped file."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    photo_path = PHOTOS_DIR / f"photo_{ts}.jpg"
+
+    capture_config = picam2.create_still_configuration(
+        main={"size": CAPTURE_RES}
+    )
+    picam2.switch_mode_and_capture_file(capture_config, str(photo_path))
+
+    picam2.stop()
+    picam2.configure(preview_config)
+    picam2.start()
+
+    return photo_path
+
+
 # --- Main ---
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--preview", action="store_true",
+        help="Capture a photo and save the receipt as receipt_preview.jpg instead of printing"
+    )
+    args = parser.parse_args()
+
     PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
     picam2 = Picamera2()
@@ -263,11 +291,23 @@ def main():
     picam2.configure(preview_config)
     picam2.start()
 
-    button = Button(BUTTON_PIN, pull_up=True, bounce_time=0.05)
-
-    print("Photobooth ready. Press the button to take a photo. Ctrl+C to quit.")
-
     try:
+        if args.preview:
+            print("Capturing...")
+            photo_path = capture_photo(picam2, preview_config)
+            print(f"Saved: {photo_path}")
+
+            print("Building receipt...")
+            receipt = build_receipt(photo_path)
+            out_path = Path.home() / "photobooth" / "receipt_preview.jpg"
+            receipt.save(str(out_path))
+            print(f"Preview saved: {out_path}")
+            return
+
+        button = Button(BUTTON_PIN, pull_up=True, bounce_time=0.05)
+
+        print("Photobooth ready. Press the button to take a photo. Ctrl+C to quit.")
+
         while True:
             print("Waiting for button press...")
             button.wait_for_press()
@@ -278,18 +318,7 @@ def main():
                 time.sleep(1)
 
             print("Capturing...")
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            photo_path = PHOTOS_DIR / f"photo_{ts}.jpg"
-
-            capture_config = picam2.create_still_configuration(
-                main={"size": CAPTURE_RES}
-            )
-            picam2.switch_mode_and_capture_file(capture_config, str(photo_path))
-
-            picam2.stop()
-            picam2.configure(preview_config)
-            picam2.start()
-
+            photo_path = capture_photo(picam2, preview_config)
             print(f"Saved: {photo_path}")
 
             print("Printing...")
